@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowRight, TrendingUp } from "lucide-react";
+import { ArrowRight, CheckCircle2, Sparkles, TrendingUp } from "lucide-react";
 import { documentSlices, type WorkspaceDocument } from "@/lib/supabase";
 import { creepHeadline, creepTitle, creepToFlag, detectVendorCreep, type MonthLines, type VendorCreep } from "@/lib/vendorCreep";
 import { exactMoney } from "@/lib/fiscal";
@@ -72,7 +72,8 @@ export function VendorCreepAlerts({
   if (!creep.length) return null;
   const visible = showAll ? creep : creep.slice(0, 4);
   const doneFor = (c: VendorCreep) => implemented.find((x) => x.title === creepTitle(c) && x.status === "IMPLEMENTED");
-  const totalMonthly = creep.reduce((a, c) => a + c.increase, 0);
+  const totalMonthly = creep.reduce((a, c) => a + (doneFor(c) ? 0 : c.increase), 0);
+  const recoveredMonthly = creep.reduce((a, c) => a + (doneFor(c) ? c.increase : 0), 0);
 
   return (
     <div className={cn(glass, "border-rose-300/25 p-6")}>
@@ -83,8 +84,15 @@ export function VendorCreepAlerts({
           </h2>
           <p className="mt-1 text-xs text-slate-400">Recurring {figures.personal ? "bills" : "vendor, software and utility charges"} that rose across your saved statement months.</p>
         </div>
-        <span className="rounded-full border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-xs tabular-nums text-rose-100">
-          +{exactMoney(totalMonthly)}/mo · {exactMoney(totalMonthly * 12)}/yr leakage
+        <span className="flex flex-wrap justify-end gap-1.5">
+          {totalMonthly > 0 && (
+            <span className="rounded-full border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-xs tabular-nums text-rose-100">
+              +{exactMoney(totalMonthly)}/mo · {exactMoney(totalMonthly * 12)}/yr leakage
+            </span>
+          )}
+          {recoveredMonthly > 0 && (
+            <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs tabular-nums text-emerald-100">{exactMoney(recoveredMonthly)}/mo recovered</span>
+          )}
         </span>
       </div>
 
@@ -92,7 +100,7 @@ export function VendorCreepAlerts({
         {visible.map((c) => {
           const done = doneFor(c);
           return (
-            <li key={c.key} className={cn("rounded-xl border bg-white/[0.03] p-4", c.severity === "HIGH" ? "border-rose-300/30" : "border-white/10")}>
+            <li key={c.key} className={cn("rounded-xl border p-4", done ? "border-emerald-400/30 bg-emerald-500/[0.05]" : c.severity === "HIGH" ? "border-rose-300/30 bg-white/[0.03]" : "border-white/10 bg-white/[0.03]")}>
               <button type="button" onClick={() => setOpen(c)} className="group block w-full text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-300" aria-label={`${creepTitle(c)}: open price history and recommendations`}>
                 <span className="flex items-start justify-between gap-3">
                   <span className="text-sm font-medium text-slate-100 group-hover:text-white">
@@ -107,14 +115,21 @@ export function VendorCreepAlerts({
                   </span>
                   {c.leakedToDate > 0 && <span className="tabular-nums">{exactMoney(c.leakedToDate)} overpaid so far</span>}
                   <span className="text-slate-500">{c.category}</span>
-                  <span className="ml-auto inline-flex items-center gap-1 font-medium text-indigo-300 group-hover:text-indigo-200">
-                    Deep dive &amp; ROI <ArrowRight className="h-3 w-3" />
+                </span>
+                {/* The high-value part of the alert: styled as a real call to action, not a text link. */}
+                <span className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 ring-1 ring-inset ring-white/15 transition group-hover:from-indigo-400 group-hover:to-violet-400 group-hover:shadow-indigo-400/40">
+                    <Sparkles className="h-3.5 w-3.5" aria-hidden /> Deep Dive &amp; ROI <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" aria-hidden />
                   </span>
+                  <span className="text-[11px] text-slate-400">Price history, negotiation playbook &amp; {exactMoney(c.annualImpact)}/yr payback</span>
                 </span>
               </button>
               {onToggleImplemented && (
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-white/5 pt-2">
-                  <p className="text-xs text-emerald-300">{done ? `Recovering ~${exactMoney(c.increase)}/mo` : `Win back ~${exactMoney(c.increase)}/mo`}</p>
+                  <p className="inline-flex items-center gap-1 text-xs text-emerald-300">
+                    {done && <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />}
+                    {done ? `Implemented · saving ${exactMoney(c.increase)}/mo (${exactMoney(c.increase * 12)}/yr) in your projections` : `Win back ~${exactMoney(c.increase)}/mo`}
+                  </p>
                   <ImplementedToggle on={!!done} title={creepTitle(c)} since={done?.since} onToggle={() => onToggleImplemented(creepToFlag(c))} />
                 </div>
               )}

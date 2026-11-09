@@ -57,6 +57,7 @@ import {
   MODE_COPY,
   MONTH_NAMES,
   PRICING,
+  applyScenario,
   effectiveInflationRate,
   isAnalysisResponse,
   isCpiReading,
@@ -67,6 +68,7 @@ import {
   normalizeForecastSettings,
   projectBaseline,
   projectionOptions,
+  resolveForecastStart,
   resolvePercentExpenses,
   splitTotals,
   sum,
@@ -79,6 +81,7 @@ import {
   type ExtractedLineItems,
   type ForecastSettings,
   type RevenueLine,
+  type ScenarioAdjustment,
   type FinancialAnalysis,
   type PercentOfRevenue,
   type Severity,
@@ -109,6 +112,7 @@ import {
   type WorkspaceDocument,
 } from "@/lib/supabase";
 import { exactMoney, normalizeTrackerState, statementTotals, withLoggedActual, type MonthActual } from "@/lib/fiscal";
+import { savingsAdjustments, savingsTotals, uncapturedMonthly, type SavingsTotals } from "@/lib/savingsImpact";
 import { aggregateActuals, calibrateToActuals, resolveBasis, type ActualsAggregate, type ProjectionBasis } from "@/lib/projectionBasis";
 import { DOCUMENT_KIND_LABELS, REVIEW_FLAG_LABELS, aggregateStatements, documentName, hashFile, renameForMonth, monthlyBaseline, parseExtractResponse, type ParsedStatement, type ReviewFlag, type StatementOverlap } from "@/lib/batchStatements";
 import { buildVendorHistory, classifyLine, insightTone, matchFlags, sameVendor, type LineInsight } from "@/lib/lineInsights";
@@ -141,6 +145,7 @@ import { ExpenseShareCard } from "@/components/dashboard/ExpenseShare";
 import { CashFlowChart } from "@/components/dashboard/CashFlowChart";
 import { MonthlyBreakdown, type LineRef } from "@/components/dashboard/MonthlyBreakdown";
 import { WhatIfSimulator } from "@/components/dashboard/WhatIfSimulator";
+import { SavingsBanner } from "@/components/dashboard/SavingsBanner";
 import { RunwayCard, breakEvenSentence, runwayFigures, runwaySentence } from "@/components/dashboard/RunwayCard";
 import { BenchmarkGauges, benchmarksReportHtml } from "@/components/dashboard/BenchmarkGauges";
 import { VendorCreepAlerts, useVendorCreep } from "@/components/dashboard/VendorCreepAlerts";
@@ -148,7 +153,7 @@ import { useWorkspacePref } from "@/components/dashboard/useWorkspacePref";
 import { GranularityToggle, PaceStrip } from "@/components/dashboard/GranularityToggle";
 import { GRANULARITIES, GRANULARITY_LABELS, GRANULARITY_UNIT, isGranularity, labelToKey, paceOf, toPeriods, type Granularity } from "@/lib/granularity";
 import { defaultBenchmarkProfile, evaluateBenchmarks, isBenchmarkProfile, type BenchmarkProfile } from "@/lib/benchmarks";
-import { creepHeadline, type VendorCreep } from "@/lib/vendorCreep";
+import { creepHeadline, creepTitle, type VendorCreep } from "@/lib/vendorCreep";
 import { cn, errorMessage, glass, inputCls, pct, primaryBtn, secondaryBtn, usd, usdCompact } from "@/components/ui";
 
 const PRIVACY_BADGE = "🔒 256-Bit Encrypted | Zero File Retention — Statement files are parsed in memory and never stored; only the parsed results are saved to your private workspace.";
@@ -160,10 +165,17 @@ const resultsKey = (userId: string) => `lp:results:${userId}`;
 // Error boundary
 // ---------------------------------------------------------------------------
 
-class PanelBoundary extends Component<{ title: string; children: ReactNode }, { error: Error | null }> {
-  state = { error: null as Error | null };
+/**
+ * Per-panel error boundary. `resetKey`: when it changes (e.g. the tab is reopened or the data behind the panel changes)
+ * a previous error is cleared and the panel renders again — a transient failure never sticks until a page refresh.
+ */
+class PanelBoundary extends Component<{ title: string; children: ReactNode; resetKey?: unknown }, { error: Error | null; resetKey?: unknown }> {
+  state: { error: Error | null; resetKey?: unknown } = { error: null, resetKey: this.props.resetKey };
   static getDerivedStateFromError(error: Error) {
     return { error };
+  }
+  static getDerivedStateFromProps(props: { resetKey?: unknown }, state: { error: Error | null; resetKey?: unknown }) {
+    return props.resetKey !== state.resetKey ? { error: null, resetKey: props.resetKey } : null;
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(`[${this.props.title}]`, error, info.componentStack);
@@ -989,11 +1001,29 @@ export default function DashboardPage() {
   const basis = resolveBasis(basisChoice, actualsAgg);
   /** The line items the projection and scenarios run on (scaled to the actuals average when that basis is active). */
   const projectionSource = useMemo(() => (rawAnalysis && !teaser && basis === "ACTUALS" && actualsAgg ? calibrateToActuals(rawAnalysis, actualsAgg) : rawAnalysis), [rawAnalysis, teaser, basis, actualsAgg]);
+  /*
+   * Implemented savings ("Mark as implemented" on price creep / audit flags) come off every projected month from the
+   * month they took effect. The basis months say which data the projection was built from, so a saving that newer
+   * statements or logged actuals already reflect isn't subtracted twice.
+   */
+  const trackerReady = tracker.status !== "loading" && !tracker.loadFailed;
+  const reportMonths = useMemo(() => {
+    const list = activeWsId ? versionsByWs[activeWsId] ?? [] : [];
+    const id = activeWsId ? activeVersion[activeWsId] ?? list[0]?.id : null;
+    return list.find((v) => v.id === id)?.summary.months ?? null;
+  }, [activeWsId, versionsByWs, activeVersion]);
+  const savingsBasisMonths = useMemo(() => (basis === "ACTUALS" ? Object.keys(tracker.state.actuals) : reportMonths), [basis, tracker.state.actuals, reportMonths]);
+  const savingsAdj = useMemo<ScenarioAdjustment[]>(
+    () => (teaser || !trackerReady ? [] : savingsAdjustments(tracker.state.savings, resolveForecastStart(forecast), savingsBasisMonths)),
+    [teaser, trackerReady, tracker.state.savings, forecast, savingsBasisMonths],
+  );
+  const savings: SavingsTotals | null = useMemo(() => (teaser || !trackerReady ? null : savingsTotals(tracker.state.savings)), [teaser, trackerReady, tracker.state.savings]);
+  const savingsInProjection = useMemo(() => (teaser || !trackerReady ? 0 : uncapturedMonthly(tracker.state.savings, savingsBasisMonths)), [teaser, trackerReady, tracker.state.savings, savingsBasisMonths]);
   const analysis = useMemo(() => {
     if (!rawAnalysis || teaser || !projectionSource) return rawAnalysis;
-    // Report figures (KPIs, line items) stay as entered; only the projection switches basis.
-    return { ...withProjection(rawAnalysis, forecast, inflationRate), macroProjections: withProjection(projectionSource, forecast, inflationRate).macroProjections };
-  }, [rawAnalysis, teaser, projectionSource, forecast, inflationRate]);
+    // Report figures (KPIs, line items) stay as entered; only the projection switches basis and nets out implemented savings.
+    return { ...withProjection(rawAnalysis, forecast, inflationRate), macroProjections: withProjection(projectionSource, forecast, inflationRate, savingsAdj).macroProjections };
+  }, [rawAnalysis, teaser, projectionSource, forecast, inflationRate, savingsAdj]);
   const scenarioAnalysis = useMemo(() => (projectionSource && analysis ? { ...projectionSource, inflationRateAssumed: analysis.inflationRateAssumed } : analysis), [projectionSource, analysis]);
   const updateLineItems = useCallback(
     (revenue: RevenueLine[], expenses: ExpenseLine[]) =>
@@ -1123,7 +1153,13 @@ export default function DashboardPage() {
     !analysis || analysis.businessType === "PERSONAL_FAMILY" ? "HOUSEHOLD" : storedBenchmark ?? defaultBenchmarkProfile(analysis.businessType);
   /** Recurring vendors whose bill rose across the saved statement months. */
   const vendorCreep = useVendorCreep(workspaceDocs);
-  const reportExtras: ReportExtras = { benchmarkProfile, cash: cashOnHand, creep: vendorCreep };
+  const implementedItems = useMemo(() => tracker.state.savings.filter((x) => x.status === "IMPLEMENTED" && x.monthly > 0), [tracker.state.savings]);
+  const reportExtras: ReportExtras = {
+    benchmarkProfile,
+    cash: cashOnHand,
+    creep: vendorCreep,
+    savings: savings && savings.count > 0 ? { items: implementedItems, totals: savings, inProjection: savingsInProjection, fyRealized: tracker.summary.savings.realizedYtd, fyLabel: tracker.fyLabel } : null,
+  };
   const toggleSaving =
     teaser || tracker.status === "loading" || tracker.loadFailed
       ? undefined
@@ -1242,6 +1278,18 @@ export default function DashboardPage() {
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
           <span>{PRIVACY_BADGE}</span>
         </div>
+
+        {/* Running ROI of every implemented recommendation: updates the moment one is marked implemented. */}
+        {savings && savings.count > 0 && (
+          <SavingsBanner
+            className="mb-6"
+            totals={savings}
+            fyRealized={tracker.summary.savings.realizedYtd}
+            fyLabel={tracker.fyLabel}
+            inProjection={savingsInProjection}
+            onView={() => openTab("fiscal", "savings-tracker")}
+          />
+        )}
 
         {confirmingCheckout && (
           <div className="mb-6 flex items-center gap-3 rounded-xl border border-indigo-400/30 bg-indigo-500/10 px-4 py-3 text-sm" role="status">
@@ -1605,7 +1653,7 @@ export default function DashboardPage() {
               </PanelBoundary>
               <PanelBoundary title="What-if simulator">
                 {isPro && !teaser && scenarioAnalysis ? (
-                  <WhatIfSimulator analysis={scenarioAnalysis} settings={forecast} cash={cashOnHand} />
+                  <WhatIfSimulator analysis={scenarioAnalysis} settings={forecast} cash={cashOnHand} baseAdjustments={savingsAdj} />
                 ) : (
                   <LockedSection title="What-If Simulator (instant sliders)" paywall={paywall} proOnly placeholder={<FakeChart />} />
                 )}
@@ -1629,14 +1677,16 @@ export default function DashboardPage() {
             </div>
 
             <div role="tabpanel" id="results-panel-report" aria-labelledby="results-tab-report" hidden={resultsTab !== "report"} className="space-y-6">
-              <PanelBoundary title="Executive report">
-                {lapsed ? (
+              {/* Mounted only while this tab is open, and reset each time it opens, so the preview is always built fresh from
+                  the current report state (a hidden, long-idle iframe could otherwise stay blank until a refresh). */}
+              <PanelBoundary title="Executive report" resetKey={`${resultsTab}|${wsKey}|${shownVersionId ?? ""}`}>
+                {resultsTab !== "report" ? null : lapsed ? (
                   <ProLapsedLock title="Executive PDF Report" paywall={paywall} />
                 ) : teaser ? (
                   <LockedSection title="Executive PDF Report" paywall={paywall} placeholder={<FakeChart />} />
                 ) : (
                   <ReportPreview
-                    html={resultsTab === "report" ? reportHtml(analysis, forecast, goalReport, inflationLabel, reportExtras) : ""}
+                    html={reportHtml(analysis, forecast, goalReport, inflationLabel, reportExtras)}
                     onShare={() => setShareOpen(true)}
                     onDownload={() => void downloadReport()}
                     downloading={reportDownloading}
@@ -2837,6 +2887,13 @@ function ResultsTabs({ value, onChange }: { value: ResultsTab; onChange: (t: Res
   );
 }
 
+/** Short, stable fingerprint of a string (FNV-1a), used to key the report frame by its content. */
+function contentKey(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  return `${text.length}-${(h >>> 0).toString(36)}`;
+}
+
 /** Live preview of the executive PDF (same HTML that prints), in a sandboxed frame. */
 function ReportPreview({ html, onShare, onDownload, downloading, hasGoal, onSetGoal }: { html: string; onShare: () => void; onDownload: () => void; downloading: boolean; hasGoal: boolean; onSetGoal: () => void }) {
   return (
@@ -2865,7 +2922,8 @@ function ReportPreview({ html, onShare, onDownload, downloading, hasGoal, onSetG
         </div>
       </div>
       <div className="mt-4 overflow-hidden rounded-xl border border-white/10 bg-white">
-        <iframe title="Executive report preview" srcDoc={html} sandbox="" className="h-[70vh] min-h-[28rem] w-full" />
+        {/* Keyed by content: a changed report mounts a fresh frame instead of re-navigating a possibly frozen one. */}
+        <iframe key={contentKey(html)} title="Executive report preview" srcDoc={html} sandbox="" loading="eager" className="h-[70vh] min-h-[28rem] w-full" />
       </div>
     </div>
   );
@@ -5598,9 +5656,12 @@ function toBaseline(a: FinancialAnalysis) {
 }
 
 /** Re-projects with the chosen settings. `inflationRate` (live CPI or the owner's custom rate) replaces the server's assumption. */
-function withProjection(a: FinancialAnalysis, s: ForecastSettings, inflationRate: number): FinancialAnalysis {
+function withProjection(a: FinancialAnalysis, s: ForecastSettings, inflationRate: number, adjustments: ScenarioAdjustment[] = []): FinancialAnalysis {
   const withRate = { ...a, inflationRateAssumed: inflationRate };
-  return { ...withRate, macroProjections: projectBaseline(toBaseline(withRate), projectionOptions(s)) };
+  if (!adjustments.length) return { ...withRate, macroProjections: projectBaseline(toBaseline(withRate), projectionOptions(s)) };
+  // Implemented savings (negative fixed costs) applied on top of the line items.
+  const r = applyScenario(toBaseline(withRate), adjustments, projectionOptions(s));
+  return { ...withRate, macroProjections: r.points.map((p) => ({ month: p.month, projectedRevenue: p.adjustedRevenue, projectedExpenses: p.adjustedExpenses })) };
 }
 
 /** "Flat baseline", "Seasonality on", "3.0% annual inflation on costs (live CPI, Sep 2026)", or both. */
@@ -6445,6 +6506,29 @@ interface ReportExtras {
   benchmarkProfile: BenchmarkProfile;
   cash: number | null;
   creep: VendorCreep[];
+  /** Optimizations the owner marked implemented, and how they move the numbers (null = none). */
+  savings?: ReportSavings | null;
+}
+
+interface ReportSavings {
+  items: { title: string; monthly: number; since?: string }[];
+  totals: SavingsTotals;
+  /** Monthly saving the projection table subtracts (less than the total when newer data already reflects some). */
+  inProjection: number;
+  fyRealized: number;
+  fyLabel: string;
+}
+
+/** "Implemented optimizations" section of the executive report: each saving, its dollar impact and the running ROI. */
+function reportSavingsHtml(x: ReportSavings): string {
+  const rows = x.items
+    .map((i) => `<tr><td>${esc(i.title)}</td><td>${i.since ? esc(periodLabel(i.since)) : "—"}</td><td class="pos">${exactMoney(i.monthly)}</td><td class="pos">${exactMoney(i.monthly * 12)}</td></tr>`)
+    .join("");
+  const proMonths = x.totals.monthly > 0 ? x.totals.monthly / PRICING.proMonthlyUsd : 0;
+  return `<h2>Implemented optimizations</h2>
+<p><strong>Saving ${exactMoney(x.totals.monthly)}/mo (${exactMoney(x.totals.annual)}/yr)</strong> from ${x.totals.count} implemented change${x.totals.count === 1 ? "" : "s"} · ${exactMoney(x.totals.realizedToDate)} realized to date · ${exactMoney(x.fyRealized)} captured in ${esc(x.fyLabel)}.${proMonths >= 1 ? ` That covers a Sumhaven Pro subscription ${proMonths >= 10 ? Math.round(proMonths) : proMonths.toFixed(1)}× over every month.` : ""}</p>
+<table><thead><tr><th>Change</th><th>In effect since</th><th>Per month</th><th>Per year</th></tr></thead><tbody>${rows}</tbody></table>
+<p class="muted">${x.inProjection > 0 ? `The projection below already subtracts ${exactMoney(x.inProjection)}/mo of these savings from each month they apply to.` : "These savings are already reflected in the figures the projection below is built from."}</p>`;
 }
 
 function reportExtrasHtml(a: FinancialAnalysis, x: ReportExtras): string {
@@ -6461,11 +6545,11 @@ function reportExtrasHtml(a: FinancialAnalysis, x: ReportExtras): string {
   const creep = x.creep.length
     ? `<h2>Vendor price creep</h2><ul>${x.creep
         .slice(0, 10)
-        .map((c) => `<li><strong>[${c.severity}]</strong> ${esc(creepHeadline(c))} <em>(+${usd.format(c.increase)}/mo · ${usd.format(c.annualImpact)}/yr)</em></li>`)
+        .map((c) => `<li><strong>[${c.severity}]</strong> ${esc(creepHeadline(c))} <em>(+${usd.format(c.increase)}/mo · ${usd.format(c.annualImpact)}/yr)</em>${x.savings?.items.some((i) => i.title === creepTitle(c)) ? ' <strong class="pos">✓ Implemented</strong>' : ""}</li>`)
         .join("")}</ul>`
     : "";
   const benchmarks = benchmarksReportHtml(evaluateBenchmarks(x.benchmarkProfile, a.itemizedRevenue, a.itemizedExpenses), x.benchmarkProfile, esc);
-  return `<h2>Cash runway &amp; break-even</h2>${runwayLine}<p>${esc(breakEvenSentence(be, personal))}</p>${paceTable}${benchmarks}${creep}`;
+  return `${x.savings ? reportSavingsHtml(x.savings) : ""}<h2>Cash runway &amp; break-even</h2>${runwayLine}<p>${esc(breakEvenSentence(be, personal))}</p>${paceTable}${benchmarks}${creep}`;
 }
 
 function reportHtml(a: FinancialAnalysis, settings: ForecastSettings, goal: GoalReport | null, inflationLabel: string, extras?: ReportExtras) {
@@ -6483,7 +6567,7 @@ function reportHtml(a: FinancialAnalysis, settings: ForecastSettings, goal: Goal
     )
     .join("");
   const flags = a.auditFlags
-    .map((f) => `<li><strong>[${f.severity}] ${esc(f.title)}</strong> — ${esc(f.message)}${f.potentialSavings > 0 ? ` <em>(~${usd.format(f.potentialSavings)}/mo)</em>` : ""}</li>`)
+    .map((f) => `<li><strong>[${f.severity}] ${esc(f.title)}</strong> — ${esc(f.message)}${f.potentialSavings > 0 ? ` <em>(~${usd.format(f.potentialSavings)}/mo)</em>` : ""}${extras?.savings?.items.some((i) => i.title === f.title) ? ' <strong class="pos">✓ Implemented</strong>' : ""}</li>`)
     .join("");
   const generated = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 

@@ -617,7 +617,9 @@ function SavingsTracker({
         </h3>
         <RealizedSavingsChip monthly={summary.implementedMonthly} realizedYtd={summary.realizedYtd} className="px-2.5 py-0.5 text-xs" />
       </div>
-      <p className="mt-1 text-[11px] text-slate-500">Mark a recommendation <span className="text-emerald-200">Implemented</span> once you&apos;ve acted on it — it counts as realized savings from this month on.</p>
+      <p className="mt-1 text-[11px] text-slate-500">
+        Mark a recommendation <span className="text-emerald-200">Implemented</span> once you&apos;ve acted on it — it counts as realized savings from this month on and comes off your projections.
+      </p>
       <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
         <div>
           <dt className="text-slate-500">Identified (not yet acted on)</dt>
@@ -636,6 +638,11 @@ function SavingsTracker({
           <dd className="mt-0.5 font-semibold tabular-nums">{signedUsd(summary.projectedFy)}</dd>
         </div>
       </dl>
+      {summary.inForecast > 0 && (
+        <p className="mt-2 rounded-md border border-emerald-400/20 bg-emerald-500/[0.06] px-2 py-1.5 text-[11px] text-emerald-100">
+          Your Projected FY above already subtracts {exactMoney(summary.inForecast)} of implemented savings from the months you haven&apos;t logged yet.
+        </p>
+      )}
 
       {importable.length > 0 && (
         <button

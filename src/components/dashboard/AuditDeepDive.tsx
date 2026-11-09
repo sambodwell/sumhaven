@@ -176,13 +176,22 @@ export function AuditDeepDive({
   const listRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
+  const onCloseRef = useRef(onClose);
   useEffect(() => {
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  // Only on open (a parent re-render passing a new onClose must not jump the dialog back to the top): start at the
+  // top — price history and ROI first — and focus the close button without scrolling.
+  useEffect(() => {
+    closeRef.current?.focus({ preventScroll: true });
+    listRef.current?.scrollTo({ top: 0 });
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
+  // Follow the conversation only once there is one — on open (no messages yet) the dialog stays at the top.
   useEffect(() => {
+    if (!messages.length && !busy) return;
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy]);
 

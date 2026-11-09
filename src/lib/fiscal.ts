@@ -6,6 +6,7 @@
  */
 
 import { DEFAULT_SEASONALITY_STRENGTH, MONTH_NAMES, clampStrength, effectiveSeasonalCurve, isBusinessType, monthKey, normalizeSeasonalCurve, round2, type BusinessType, type SeasonalCurve } from "@/lib/schemas";
+import { implementedOf, uncapturedShare } from "@/lib/savingsImpact";
 
 export type TrackerForecastMode = "TRAILING" | "BASELINE";
 export type GoalMetric = "NET" | "REVENUE" | "EXPENSE";
@@ -183,6 +184,8 @@ export interface FiscalMonth {
   expenses: number;
   forecastRevenue: number;
   forecastExpenses: number;
+  /** Implemented savings taken off this month's forecast expenses (0 for logged months: actuals already include them). */
+  savingsApplied: number;
 }
 
 export interface PaceResult {
@@ -214,6 +217,8 @@ export interface FiscalSummary {
     realizedYtd: number;
     /** realizedYtd + implemented savings over the remaining months. */
     projectedFy: number;
+    /** Total implemented savings taken off the unlogged (forecast) months of this fiscal year. */
+    inForecast: number;
   };
 }
 
@@ -246,6 +251,12 @@ export function summarizeFiscalYear(s: FiscalTrackerState, now = new Date()): Fi
     : null;
   const trailingOneTimeExcluded = sumMoney(trailingKeys, (k) => oneTimeOf(s.actuals[k]));
 
+  // Implemented savings lower every forecast month from the month they took effect. A trailing average built from
+  // months logged after a saving already contains it, so only the share of the window that predates it is applied.
+  const implementedSavings = implementedOf(s.savings);
+  const savingsFor = (key: string, usingTrailing: boolean) =>
+    round2(sumMoney(implementedSavings.filter((x) => !x.since || x.since <= key), (x) => x.monthly * (usingTrailing ? uncapturedShare(x.since, trailingKeys) : 1)));
+
   const months: FiscalMonth[] = dates.map((d, i) => {
     const key = keys[i];
     const idx = d.getUTCMonth();
@@ -254,8 +265,11 @@ export function summarizeFiscalYear(s: FiscalTrackerState, now = new Date()): Fi
     const plan = { revenue: round2(s.baseline.revenue * rs), expenses: round2(s.baseline.expenses * es) };
     // An empty plan (no baseline was ever set) would forecast $0: logged actuals are the better estimate then.
     const noPlan = s.baseline.revenue === 0 && s.baseline.expenses === 0;
-    const forecast = trailing && (s.forecastMode === "TRAILING" || noPlan) ? trailing : plan;
+    const usingTrailing = !!trailing && (s.forecastMode === "TRAILING" || noPlan);
+    const base = usingTrailing ? trailing! : plan;
     const actual = s.actuals[key] ?? null;
+    const savingsApplied = actual ? 0 : Math.min(base.expenses, savingsFor(key, usingTrailing));
+    const forecast = { revenue: base.revenue, expenses: subMoney(base.expenses, savingsApplied) };
     const status: MonthStatus = actual ? "ACTUAL" : key <= currentKey ? "OPEN" : "FUTURE";
     return {
       key,
@@ -266,6 +280,7 @@ export function summarizeFiscalYear(s: FiscalTrackerState, now = new Date()): Fi
       expenses: actual ? actual.expenses : forecast.expenses,
       forecastRevenue: forecast.revenue,
       forecastExpenses: forecast.expenses,
+      savingsApplied,
     };
   });
 
@@ -300,6 +315,7 @@ export function summarizeFiscalYear(s: FiscalTrackerState, now = new Date()): Fi
       implementedMonthly: sumMoney(implemented, (x) => x.monthly),
       realizedYtd,
       projectedFy: round2(realizedYtd + sumMoney(implemented, (x) => x.monthly) * futureMonths),
+      inForecast: sumMoney(months, (m) => m.savingsApplied),
     },
   };
 }
