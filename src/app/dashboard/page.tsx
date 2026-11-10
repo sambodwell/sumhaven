@@ -445,6 +445,15 @@ export default function DashboardPage() {
     setCheckoutReason(reason);
     setCheckoutOpen(true);
   }, []);
+  // Arriving from the public demo's upgrade button (/dashboard?upgrade=1): open the paywall once the plan is known.
+  const upgradeHandled = useRef(false);
+  useEffect(() => {
+    if (upgradeHandled.current || !app.ready || !app.user) return;
+    if (new URLSearchParams(window.location.search).get("upgrade") !== "1") return;
+    upgradeHandled.current = true;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (!app.isPro) openPaywall("upgrade");
+  }, [app.ready, app.user, app.isPro, openPaywall]);
   const [shareOpen, setShareOpen] = useState(false);
   const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
   /**

@@ -18,6 +18,9 @@ export function Footer() {
           <Link href="/dashboard" className="hover:text-slate-300">
             Dashboard
           </Link>
+          <Link href="/demo" className="font-medium text-indigo-300 hover:text-indigo-200">
+            Interactive demo
+          </Link>
           <Link href="/settings" className="hover:text-slate-300">
             Settings &amp; Billing
           </Link>

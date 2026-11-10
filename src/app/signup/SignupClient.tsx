@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { useApp } from "@/components/AppProvider";
@@ -59,6 +60,13 @@ export function SignupClient({ searchParams }: { searchParams: Promise<Query> })
             onSignedIn={() => router.replace(params.next)}
           />
         )}
+        <p className="mt-5 border-t border-white/10 pt-4 text-sm text-slate-400">
+          Not ready to sign up?{" "}
+          <Link href="/demo" className="text-indigo-300 hover:text-indigo-200">
+            Try the interactive demo
+          </Link>{" "}
+          on a sample statement first.
+        </p>
       </div>
     </main>
   );

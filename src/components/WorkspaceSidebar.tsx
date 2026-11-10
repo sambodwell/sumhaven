@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   Loader2,
   Menu,
+  PlayCircle,
   Plus,
   Settings2,
   Upload,
@@ -253,6 +254,10 @@ function SidebarContent({ documents, onOpenWorkspaceSettings, onCreate, onNaviga
           ))}
         <NavLink href="/settings" active={pathname === "/settings"} Icon={CreditCard} onClick={onNavigate}>
           Account &amp; billing
+        </NavLink>
+        <NavLink href="/demo" Icon={PlayCircle} onClick={onNavigate}>
+          <span className="flex-1">Interactive demo</span>
+          <span className="rounded-full border border-indigo-300/30 bg-indigo-500/15 px-1.5 text-[10px] font-medium text-indigo-100">Sample</span>
         </NavLink>
       </nav>
 
