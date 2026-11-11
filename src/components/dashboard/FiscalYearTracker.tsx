@@ -16,6 +16,7 @@ import {
   summarizeFiscalYear,
   withLoggedActual,
   type FiscalTrackerState,
+  type GoalMargin,
   type GoalPace,
   type MonthActual,
 } from "@/lib/fiscal";
@@ -43,6 +44,8 @@ const FY_INPUT = "py-1 placeholder:text-slate-500/70 focus:placeholder:text-tran
 export interface GoalReport {
   pace: GoalPace;
   fyLabel: string;
+  /** The net margin the goal implies at the fiscal year's current revenue / expenses. */
+  margin?: GoalMargin | null;
 }
 
 /**

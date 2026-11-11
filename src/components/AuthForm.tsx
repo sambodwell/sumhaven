@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { Eye, EyeOff, Loader2, Lock } from "lucide-react";
-import { isSupabaseConfigured, resendSignupEmail, signInWithPassword, signUpWithPassword } from "@/lib/supabase";
+import { getRememberMe, isSupabaseConfigured, resendSignupEmail, setRememberMe, signInWithPassword, signUpWithPassword } from "@/lib/supabase";
 import { cn, inputCls, primaryBtn } from "@/components/ui";
 
 export type AuthMode = "signin" | "signup";
@@ -31,6 +31,8 @@ export function AuthForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  // Starts from this device's last choice (remembered unless it was switched off).
+  const [remember, setRemember] = useState(() => getRememberMe());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(initialNotice ?? null);
@@ -81,6 +83,8 @@ export function AuthForm({
       if (password !== confirm) return setError("Passwords don't match.");
     }
     setBusy(true);
+    // Decides where the session that follows is stored (also the one created from the email confirmation link).
+    setRememberMe(remember);
     try {
       if (!signup) {
         await signInWithPassword(email, password);
@@ -129,6 +133,13 @@ export function AuthForm({
             Passwords don&apos;t match.
           </p>
         )}
+        <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-300">
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="mt-0.5 h-4 w-4 accent-indigo-400" />
+          <span>
+            Remember me
+            <span className="block text-xs text-slate-500">{remember ? "Stay signed in on this device until you sign out." : "You'll be signed out when you close this browser tab or window."}</span>
+          </span>
+        </label>
         {error && (
           <p className="text-sm text-rose-300" role="alert">
             {error}

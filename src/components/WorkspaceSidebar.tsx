@@ -141,7 +141,7 @@ function SidebarContent({ documents, onOpenWorkspaceSettings, onCreate, onNaviga
   const router = useRouter();
   const pathname = usePathname();
   const ws = app.activeWorkspace;
-  const onDashboard = pathname === "/dashboard";
+  const onDashboard = isOnRoute(pathname, "/dashboard");
 
   const switchTo = (w: WorkspaceProfile) => {
     if (w.id !== ws?.id) app.setActiveWorkspaceId(w.id);
@@ -252,10 +252,10 @@ function SidebarContent({ documents, onOpenWorkspaceSettings, onCreate, onNaviga
               Workspace settings
             </NavLink>
           ))}
-        <NavLink href="/settings" active={pathname === "/settings"} Icon={CreditCard} onClick={onNavigate}>
+        <NavLink href="/settings" active={isOnRoute(pathname, "/settings")} Icon={CreditCard} onClick={onNavigate}>
           Account &amp; billing
         </NavLink>
-        <NavLink href="/demo" Icon={PlayCircle} onClick={onNavigate}>
+        <NavLink href="/demo" active={isOnRoute(pathname, "/demo")} Icon={PlayCircle} onClick={onNavigate}>
           <span className="flex-1">Interactive demo</span>
           <span className="rounded-full border border-indigo-300/30 bg-indigo-500/15 px-1.5 text-[10px] font-medium text-indigo-100">Sample</span>
         </NavLink>
@@ -268,13 +268,27 @@ function SidebarContent({ documents, onOpenWorkspaceSettings, onCreate, onNaviga
   );
 }
 
+/**
+ * Whether the current URL is `route` or a page under it. Derived from the pathname on every render (never stored), so
+ * the highlighted item always follows the page that is actually showing — including when a preserved page comes back.
+ */
+const isOnRoute = (pathname: string | null, route: string) => {
+  const p = (pathname ?? "").replace(/\/+$/, "") || "/";
+  return p === route || p.startsWith(`${route}/`);
+};
+
+/** Only the item for the current page gets the active look; an expanded dropdown is not "active". */
 const navCls = (active: boolean) =>
-  cn("flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition", active ? "bg-white/[0.07] text-white" : "text-slate-300 hover:bg-white/5 hover:text-white");
+  cn(
+    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition",
+    active ? "bg-indigo-500/15 font-medium text-white" : "text-slate-300 hover:bg-white/5 hover:text-white",
+  );
 
 function NavLink({ href, active = false, Icon, onClick, children }: { href: string; active?: boolean; Icon: typeof Home; onClick?: () => void; children: ReactNode }) {
   return (
     <Link href={href} onClick={onClick} aria-current={active ? "page" : undefined} className={navCls(active)}>
-      <Icon className="h-4 w-4 text-slate-400" /> {children}
+      <Icon className={cn("h-4 w-4 shrink-0", active ? "text-indigo-300" : "text-slate-400")} aria-hidden />
+      {children}
     </Link>
   );
 }
@@ -304,7 +318,7 @@ function DocumentsNav({ documents, onNavigate }: { documents?: SidebarDocuments;
   };
   return (
     <div>
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls={listId} className={navCls(open)}>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls={listId} className={navCls(false)}>
         <FolderOpen className="h-4 w-4 text-slate-400" />
         <span className="flex-1">Documents</span>
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" /> : <span className="rounded-full bg-white/10 px-1.5 text-[11px] tabular-nums text-slate-300">{docs.length}</span>}
@@ -400,7 +414,7 @@ export function CreateWorkspaceDialog({ onClose }: { onClose: () => void }) {
     try {
       await app.createFreshWorkspace({ name, businessType: mode === "PERSONAL" ? "PERSONAL_FAMILY" : businessType });
       onClose();
-      if (pathname !== "/dashboard") router.push("/dashboard");
+      if (!isOnRoute(pathname, "/dashboard")) router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't create the workspace.");
       setBusy(false);

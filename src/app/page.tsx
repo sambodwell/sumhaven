@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, FileText, LayoutDashboard, MousePointerClick, PlayCircle, ShieldCheck, SlidersHorizontal, Table2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, FileText, LayoutDashboard, MessageSquareText, MousePointerClick, PlayCircle, ShieldCheck, SlidersHorizontal, Table2 } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { PlanCard } from "@/components/PlanCard";
 import { AccountCta, HeaderAccountLink } from "@/components/landing/AccountLinks";
@@ -9,6 +9,7 @@ import { DEMO_COMPANY, DEMO_FILE, DEMO_FLAGS, DEMO_PERIOD } from "@/components/d
 const DEMO_STEPS = [
   { icon: LayoutDashboard, title: "Overview dashboard", text: "Cash flow, spending by category and the audit flags found in the statement." },
   { icon: SlidersHorizontal, title: "What-if forecasting", text: "Move revenue and expenses and watch the next 12 months respond." },
+  { icon: MessageSquareText, title: "AI scenario chat", text: "Ask a plain-English question and see the forecast re-run with the answer." },
   { icon: Table2, title: "Budget vs. actuals", text: "Line-by-line variance for each month and the quarter." },
   { icon: FileText, title: "Executive report", text: "Audit goals, risk callouts, month-by-month P&L, a 12-month projection and the written analysis." },
 ] as const;
@@ -50,7 +51,11 @@ export default function Home() {
             </a>
             <HeaderAccountLink />
             <Link href="/demo" className={cn(primaryBtn, "px-3 py-1.5")}>
-              <PlayCircle className="h-4 w-4" aria-hidden /> <span className="hidden sm:inline">Interactive</span> demo
+              <PlayCircle className="h-4 w-4" aria-hidden />
+              {/* One flex item, so the words are separated by a normal space rather than the button's icon gap. */}
+              <span>
+                <span className="hidden sm:inline">Interactive </span>Demo
+              </span>
             </Link>
           </nav>
         </div>
@@ -131,13 +136,13 @@ export default function Home() {
               <h2 id="demo-tour-title" className="mt-1 text-2xl font-semibold tracking-tight">
                 Walk through a full audit before you sign up
               </h2>
-              <p className="mt-2 max-w-2xl text-slate-400">Drop in the sample statement and explore everything Pro produces from it, in four steps.</p>
+              <p className="mt-2 max-w-2xl text-slate-400">Drop in the sample statement and explore everything Pro produces from it, in five steps.</p>
             </div>
             <Link href="/demo" className={cn(primaryBtn, "shrink-0 px-5 py-2.5")}>
               <PlayCircle className="h-4 w-4" aria-hidden /> Start the demo
             </Link>
           </div>
-          <ol className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <ol className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {DEMO_STEPS.map((s, i) => (
               <li key={s.title} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                 <div className="flex items-center gap-2">

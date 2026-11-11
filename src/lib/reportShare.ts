@@ -8,7 +8,7 @@
 /** Stylesheet of the executive report (used by the PDF/preview and by shared links). */
 export const REPORT_CSS = `body{font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#111;max-width:860px;margin:40px auto;padding:0 20px}
 h1{font-size:24px;margin:0}h2{font-size:16px;margin:28px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}
-.muted{color:#666}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px}
+.muted{color:#666}.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:20px}
 .kpi{border:1px solid #ddd;border-radius:8px;padding:12px}.kpi b{display:block;font-size:18px;font-variant-numeric:tabular-nums}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}td,th{padding:6px 8px;border-bottom:1px solid #eee;text-align:right}
 td:first-child,th:first-child{text-align:left}.neg{color:#b42318}.pos{color:#047857}.warn{color:#b54708}li{margin-bottom:6px}.kpi .muted{font-size:11px}

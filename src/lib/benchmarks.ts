@@ -217,6 +217,53 @@ export function evaluateBenchmarks(profile: BenchmarkProfile, revenue: Pick<Reve
   });
 }
 
+// ---------------------------------------------------------------------------
+// Net margin percentile (an estimate placed on a bell curve)
+// ---------------------------------------------------------------------------
+
+export interface MarginPercentile {
+  /** "Net profit margin", "Cash-flow margin" or "Savings rate". */
+  label: string;
+  /** The owner's margin (0.18 = 18%). */
+  value: number;
+  /** Estimated share of peers with a lower margin, 1–99. */
+  percentile: number;
+  /** Centre and spread of the assumed peer distribution. */
+  mean: number;
+  sd: number;
+  /** The peer group's typical range (drawn as the shaded band). */
+  lo: number;
+  hi: number;
+}
+
+/** Standard normal CDF (Abramowitz–Stegun 7.1.26; accurate to ~1e-7, far finer than the inputs). */
+function normalCdf(z: number): number {
+  const t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2);
+  const erf = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-(z * z) / 2);
+  return z >= 0 ? (1 + erf) / 2 : (1 - erf) / 2;
+}
+
+/**
+ * Places a net margin on an assumed bell curve for the peer group. There is no audited dataset behind this: the
+ * group's typical range (the same rule-of-thumb range the gauges use) is treated as the middle half of peers, i.e.
+ * a normal distribution centred on the range's midpoint whose quartiles sit at its ends. The UI labels it an estimate.
+ */
+export function marginPercentile(profile: BenchmarkProfile, margin: number): MarginPercentile | null {
+  const d = PROFILES[profile].find((m) => m.computed === "NET_MARGIN" || m.computed === "SAVINGS_RATE");
+  if (!d || !Number.isFinite(margin)) return null;
+  const mean = (d.lo + d.hi) / 2;
+  const sd = (d.hi - d.lo) / 1.349; // interquartile range of a normal distribution = 1.349 sd
+  const percentile = Math.min(99, Math.max(1, Math.round(normalCdf((margin - mean) / sd) * 100)));
+  return { label: d.label, value: margin, percentile, mean, sd, lo: d.lo, hi: d.hi };
+}
+
+/** "1st", "2nd", "3rd", "24th". */
+export function ordinal(n: number): string {
+  const v = n % 100;
+  const suffix = v >= 11 && v <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th");
+  return `${n}${suffix}`;
+}
+
 /** Status → tone for chips: good (green), warn (amber), bad (red), muted. */
 export function benchmarkTone(r: Pick<BenchmarkResult, "status" | "better">): "good" | "warn" | "bad" | "muted" {
   switch (r.status) {

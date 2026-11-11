@@ -111,7 +111,7 @@ import {
   type ReportVersionSummary,
   type WorkspaceDocument,
 } from "@/lib/supabase";
-import { exactMoney, normalizeTrackerState, statementTotals, withLoggedActual, type MonthActual } from "@/lib/fiscal";
+import { GOAL_METRIC_LABEL, exactMoney, goalMargin, normalizeTrackerState, statementTotals, withLoggedActual, type MonthActual } from "@/lib/fiscal";
 import { savingsAdjustments, savingsTotals, uncapturedMonthly, type SavingsTotals } from "@/lib/savingsImpact";
 import { aggregateActuals, calibrateToActuals, resolveBasis, type ActualsAggregate, type ProjectionBasis } from "@/lib/projectionBasis";
 import { DOCUMENT_KIND_LABELS, REVIEW_FLAG_LABELS, aggregateStatements, documentName, hashFile, renameForMonth, monthlyBaseline, parseExtractResponse, type ParsedStatement, type ReviewFlag, type StatementOverlap } from "@/lib/batchStatements";
@@ -136,7 +136,7 @@ import { REPORT_CSS } from "@/lib/reportShare";
 import { ForecastControls, SeasonalityHelp } from "@/components/dashboard/ForecastControls";
 import { ScenarioPanel, scenarioExamples } from "@/components/dashboard/ScenarioPanel";
 import { FiscalYearTracker, ImplementedToggle, toggleImplemented, type GoalReport } from "@/components/dashboard/FiscalYearTracker";
-import { DataCompletenessNote, GoalPaceBanner, GoalTracker, goalPaceBannerHtml, goalPaceReportHtml } from "@/components/dashboard/GoalTracker";
+import { DataCompletenessNote, GoalPaceBanner, GoalTracker, goalMarginHtml, goalPaceBannerHtml, goalPaceReportHtml } from "@/components/dashboard/GoalTracker";
 import { clearLocalTracker, clearUnsyncedTracker, readLocalTracker, useFiscalTracker } from "@/components/dashboard/useFiscalTracker";
 import { InfoTip } from "@/components/InfoTip";
 import { FeedbackWidget } from "@/components/dashboard/FeedbackWidget";
@@ -519,7 +519,7 @@ export default function DashboardPage() {
   /** Fiscal Year Tracker state (monthly actuals, goals, savings) for the active workspace, shared with the Goal Tracker. */
   const tracker = useFiscalTracker({ userId: userId ?? "", workspaceId: ws?.id ?? null, businessType: formDefaultType });
   /** Goal pace included in the executive PDF. */
-  const goalReport: GoalReport | null = tracker.pace && tracker.status !== "loading" && !tracker.loadFailed ? { pace: tracker.pace, fyLabel: tracker.fyLabel } : null;
+  const goalReport: GoalReport | null = tracker.pace && tracker.status !== "loading" && !tracker.loadFailed ? { pace: tracker.pace, fyLabel: tracker.fyLabel, margin: goalMargin(tracker.summary, tracker.state.goalMetric, tracker.goal) } : null;
 
   /*
    * Where a workspace lands. A workspace with anything saved — a report, parsed documents, or logged actuals — opens
@@ -5716,10 +5716,23 @@ function KpiRow({ analysis, mode, locked, settings, inflationLabel }: { analysis
   const d = useDerived(analysis);
   const months = settings.months;
   const copy = MODE_COPY[mode];
+  const margin = analysis.monthlyRevenue > 0 ? d.net / analysis.monthlyRevenue : null;
   const tiles: { label: string; value: string; sub?: string; bad?: boolean; locked?: boolean; info?: ReactNode }[] = [
     { label: `Monthly ${copy.revenue.toLowerCase()}`, value: usd.format(analysis.monthlyRevenue), sub: d.oneTimeRevenue > 0 ? `+ ${usd.format(d.oneTimeRevenue)} one-time` : undefined },
     { label: `Monthly ${copy.expenses.toLowerCase()}`, value: usd.format(d.monthlyExpenses), sub: d.oneTimeExpenses > 0 ? `+ ${usd.format(d.oneTimeExpenses)} one-time` : undefined },
     { label: copy.net, value: usd.format(d.net), bad: d.net < 0 },
+    {
+      label: mode === "PERSONAL" ? "Share of income left" : "Net margin",
+      value: margin == null ? "—" : pct(margin),
+      sub: margin == null ? `Add ${copy.revenue.toLowerCase()} to calculate` : `${usd.format(d.net * 12)} a year at this rate`,
+      bad: margin != null && margin < 0,
+      info: (
+        <>
+          {copy.net.split(" /")[0]} ÷ {copy.revenue.toLowerCase()}, using recurring monthly amounts only: what you keep from every dollar that comes in. One-time items are left out so a
+          single month doesn&apos;t distort it.
+        </>
+      ),
+    },
     locked
       ? { label: `${months}-mo projected net`, value: "Locked", sub: "Unlock to see your forecast", locked: true }
       : {
@@ -5742,9 +5755,10 @@ function KpiRow({ analysis, mode, locked, settings, inflationLabel }: { analysis
         },
   ];
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-      {tiles.map((t) => (
-        <div key={t.label} className={cn(glass, "p-5")}>
+    <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+      {tiles.map((t, i) => (
+        // Five tiles: the last one spans the row on the two-column layout so nothing is left dangling.
+        <div key={t.label} className={cn(glass, "min-w-0 p-5", i === tiles.length - 1 && "col-span-2 xl:col-span-1")}>
           <p className="flex items-center justify-between gap-2 text-xs uppercase tracking-wide text-slate-400">
             {t.label}
             {t.info && <InfoTip label={t.label}>{t.info}</InfoTip>}
@@ -6567,6 +6581,8 @@ function reportHtml(a: FinancialAnalysis, settings: ForecastSettings, goal: Goal
   const copy = MODE_COPY[modeOf(a.businessType)];
   const monthlyExpenses = splitTotals(a.itemizedExpenses).recurring;
   const net = a.monthlyRevenue - monthlyExpenses;
+  const margin = a.monthlyRevenue > 0 ? net / a.monthlyRevenue : null;
+  const personal = a.businessType === "PERSONAL_FAMILY";
   const rows = projectionRows(a);
   const cumulative = rows.at(-1)?.cumulative ?? 0;
   const projRows = rows
@@ -6589,9 +6605,24 @@ function reportHtml(a: FinancialAnalysis, settings: ForecastSettings, goal: Goal
 <div class="kpi">Monthly ${esc(copy.revenue.toLowerCase())}<b>${usd.format(a.monthlyRevenue)}</b></div>
 <div class="kpi">Monthly ${esc(copy.expenses.toLowerCase())}<b>${usd.format(monthlyExpenses)}</b></div>
 <div class="kpi">${esc(copy.net)}<b class="${net < 0 ? "neg" : ""}">${usd.format(net)}</b></div>
+<div class="kpi">${personal ? "Share of income left" : "Net margin"}<b class="${margin != null && margin < 0 ? "neg" : ""}">${margin == null ? "—" : pct(margin)}</b></div>
 <div class="kpi">${months}-mo projected net<b class="${cumulative < 0 ? "neg" : ""}">${usd.format(cumulative)}</b></div>
 </div>
 ${goal ? goalPaceBannerHtml(goal.pace, goal.fyLabel, esc) : ""}
+<h2>Performance summary</h2>
+<table><thead><tr><th>Measure</th><th>Per month</th><th>Per year (run rate)</th></tr></thead><tbody>
+<tr><td>${esc(copy.revenue)}</td><td>${usd.format(a.monthlyRevenue)}</td><td>${usd.format(a.monthlyRevenue * 12)}</td></tr>
+<tr><td>${esc(copy.expenses)}</td><td>${usd.format(monthlyExpenses)}</td><td>${usd.format(monthlyExpenses * 12)}</td></tr>
+<tr><td>Net</td><td class="${net < 0 ? "neg" : ""}">${usd.format(net)}</td><td class="${net < 0 ? "neg" : ""}">${usd.format(net * 12)}</td></tr>
+<tr><td>${personal ? "Share of income left" : "Net margin"}</td><td colspan="2" class="${margin != null && margin < 0 ? "neg" : ""}">${margin == null ? "—" : pct(margin)}</td></tr>
+<tr><td>${months}-month projected net <span class="muted">(${esc(macro.toLowerCase())})</span></td><td colspan="2" class="${cumulative < 0 ? "neg" : ""}">${usd.format(cumulative)}</td></tr>
+</tbody></table>
+<p class="muted" style="font-size:11px">Run rate = recurring monthly amounts × 12; one-time items are excluded.</p>
+${
+  goal
+    ? `<p><strong>Goal progress:</strong> ${exactMoney(goal.pace.ytd.value)} of the ${exactMoney(goal.pace.goal)} ${esc(GOAL_METRIC_LABEL[goal.pace.metric].toLowerCase())} ${goal.pace.metric === "EXPENSE" ? "budget used" : "goal reached"} in logged actuals${goal.pace.goal !== 0 ? ` (${pct(goal.pace.ytd.value / goal.pace.goal)})` : ""} · on pace for ${exactMoney(goal.pace.annual.projected)} by year-end (${esc(goal.fyLabel)}).</p>${goal.margin ? goalMarginHtml(goal.margin, goal.pace.goal, esc) : ""}`
+    : `<p class="muted">No year-end goal set. Add one in the Goal Tracker to see progress and the net margin it requires here.</p>`
+}
 <h2>${a.businessType === "PERSONAL_FAMILY" ? "Biggest budget lever" : "Top performer"}: ${esc(a.winnerInsight.topService)}</h2><p>${esc(a.winnerInsight.message)}</p>
 <h2>Priority actions</h2>${flags ? `<ol>${flags}</ol>` : "<p>No issues found.</p>"}
 ${extras ? reportExtrasHtml(a, extras) : ""}

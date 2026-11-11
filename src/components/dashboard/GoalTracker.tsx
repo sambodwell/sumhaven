@@ -1,8 +1,8 @@
 "use client";
 
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { CheckCircle2, Cloud, Flag, Info, Loader2, PiggyBank, RotateCw, TrendingDown, TrendingUp, Trophy } from "lucide-react";
-import { GOAL_METRICS, GOAL_METRIC_LABEL, annualDeltaWords, exactMoney, paceWordsPct, signedMoney, signedPct, targetKeyFor, type GoalMetric, type GoalPace } from "@/lib/fiscal";
+import { CheckCircle2, Cloud, Flag, Info, Loader2, Percent, PiggyBank, RotateCw, TrendingDown, TrendingUp, Trophy } from "lucide-react";
+import { GOAL_METRICS, GOAL_METRIC_LABEL, annualDeltaWords, exactMoney, goalMargin, paceWordsPct, signedMoney, signedPct, targetKeyFor, type GoalMargin, type GoalMetric, type GoalPace } from "@/lib/fiscal";
 import { round2 } from "@/lib/schemas";
 import { InfoTip } from "@/components/InfoTip";
 import { CHART, ChartTooltip, COLOR, axisProps } from "@/components/dashboard/chartKit";
@@ -36,6 +36,7 @@ export function GoalTracker({ tracker, id, onViewSavings }: { tracker: FiscalTra
     })) ?? [];
 
   const disabled = status === "loading" || loadFailed;
+  const margin = goalMargin(summary, metric, goal);
 
   return (
     <section id={id} aria-label="Goal Tracker" className="glass-card scroll-mt-6 rounded-2xl border border-indigo-300/25 bg-gradient-to-br from-indigo-500/[0.09] via-white/[0.02] to-transparent p-5 shadow-[0_8px_32px_rgba(0,0,0,0.35)] backdrop-blur-xl sm:p-6">
@@ -113,6 +114,7 @@ export function GoalTracker({ tracker, id, onViewSavings }: { tracker: FiscalTra
           ) : (
             <>
               <GoalPaceBanner pace={pace} className="mt-5" />
+              {margin && goal != null && <GoalMarginCard margin={margin} goal={goal} className="mt-3" />}
               <GoalPaceDetail pace={pace} rows={rows} label={label} />
             </>
           )}
@@ -205,6 +207,67 @@ export function GoalPaceBanner({ pace, fyLabel, className, compact = false }: { 
       </p>
     </div>
   );
+}
+
+const marginPct = (n: number) => `${(n * 100).toFixed(1)}%`;
+
+/** Heading and plain-English working for the net margin a goal implies (shared by the card and the printed report). */
+export function goalMarginWords(m: GoalMargin, goal: number): { title: string; detail: string } {
+  if (m.metric === "NET")
+    return {
+      title: "Required net margin",
+      detail: `To net ${exactMoney(goal)} with operating expenses at ${exactMoney(m.expenses)} this fiscal year, revenue has to reach ${exactMoney(m.revenueNeeded ?? goal + m.expenses)}.`,
+    };
+  if (m.metric === "REVENUE") return { title: "Net margin at your revenue goal", detail: `Reaching ${exactMoney(goal)} in revenue with operating expenses at ${exactMoney(m.expenses)} this fiscal year.` };
+  return { title: "Net margin inside your budget", detail: `Holding expenses to ${exactMoney(goal)} on ${exactMoney(m.revenue)} of revenue this fiscal year.` };
+}
+
+/** Required net margin for the goal next to the margin the year is on pace for, and the gap between them in points. */
+export function GoalMarginCard({ margin: m, goal, className }: { margin: GoalMargin; goal: number; className?: string }) {
+  const words = goalMarginWords(m, goal);
+  const gap = m.required != null && m.current != null ? m.current - m.required : null;
+  const onTrack = gap != null && gap >= -0.0005;
+  return (
+    <div className={cn("rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 sm:px-4", className)}>
+      <div className="flex flex-wrap items-end gap-x-8 gap-y-2">
+        <div>
+          <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-slate-500">
+            <Percent className="h-3.5 w-3.5 text-indigo-300" aria-hidden /> {words.title}
+            <InfoTip label="How the required margin is calculated">
+              Net margin = net income ÷ revenue. Expenses and revenue are your fiscal-year figures: logged actuals plus the tracker&apos;s forecast for the remaining months. For a net income
+              goal the required margin is goal ÷ (goal + expenses); it moves as you log months or change the goal.
+            </InfoTip>
+          </p>
+          <p className="mt-0.5 text-2xl font-semibold tabular-nums text-slate-50">{m.required == null ? "—" : marginPct(m.required)}</p>
+        </div>
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">On pace for</p>
+          <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-200">{m.current == null ? "—" : marginPct(m.current)}</p>
+        </div>
+        {gap != null && (
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">Gap</p>
+            <p className={cn("mt-0.5 flex items-center gap-1 text-lg font-semibold tabular-nums", onTrack ? "text-emerald-300" : "text-rose-300")}>
+              {onTrack ? <TrendingUp className="h-4 w-4" aria-hidden /> : <TrendingDown className="h-4 w-4" aria-hidden />}
+              {Math.abs(gap * 100).toFixed(1)} pts {onTrack ? "ahead" : "short"}
+            </p>
+          </div>
+        )}
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-slate-400 sm:text-xs">
+        {words.detail}
+        {m.required == null && " Add revenue (log a month or run an analysis) to see the margin this takes."}
+      </p>
+    </div>
+  );
+}
+
+/** Required-margin line for the printed executive report. */
+export function goalMarginHtml(m: GoalMargin, goal: number, esc: (s: string) => string): string {
+  if (m.required == null) return "";
+  const words = goalMarginWords(m, goal);
+  const gap = m.current != null ? m.current - m.required : null;
+  return `<p><strong>${esc(words.title)}: ${marginPct(m.required)}</strong>${m.current != null ? ` · on pace for ${marginPct(m.current)}` : ""}${gap != null ? ` <span class="${gap >= -0.0005 ? "pos" : "neg"}">(${Math.abs(gap * 100).toFixed(1)} pts ${gap >= -0.0005 ? "ahead" : "short"})</span>` : ""}. <span class="muted">${esc(words.detail)}</span></p>`;
 }
 
 /**

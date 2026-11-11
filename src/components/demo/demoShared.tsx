@@ -3,10 +3,10 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight, Lock, Sparkles } from "lucide-react";
-import type { Severity } from "@/lib/schemas";
+import type { ScenarioAdjustment, Severity } from "@/lib/schemas";
 import { useApp } from "@/components/AppProvider";
 import { cn, primaryBtn } from "@/components/ui";
-import { DEMO_EXPENSES, DEMO_FLAGS, DEMO_REVENUE, avg, type DemoLine } from "./demoData";
+import { DEMO_EXPENSES, DEMO_FLAGS, DEMO_REVENUE, avg, type DemoFlag, type DemoLine } from "./demoData";
 
 /** Where the paywall lives: the dashboard opens it on `?upgrade=1`. Signed-out visitors create an account first. */
 const UPGRADE_PATH = "/dashboard?upgrade=1";
@@ -75,6 +75,10 @@ export const AVG_NET = AVG_REVENUE - AVG_EXPENSES;
 export const BUDGET_REVENUE = sumOf(DEMO_REVENUE, (l) => l.budget);
 export const BUDGET_EXPENSES = sumOf(DEMO_EXPENSES, (l) => l.budget);
 export const POTENTIAL_SAVINGS = DEMO_FLAGS.reduce((a, f) => a + f.potentialSavings, 0);
+
+/** An implemented flag, as the forecasting engine sees it: that much less expense every month. */
+export const asAdjustments = (flags: DemoFlag[]): ScenarioAdjustment[] =>
+  flags.map((f) => ({ type: "EXPENSE_ADD", label: f.category, amount: -f.potentialSavings, startMonth: 1, description: f.title }));
 
 /** Monthly savings from the flags the visitor has marked implemented. */
 export const implementedSavings = (implemented: ReadonlySet<string>) => DEMO_FLAGS.filter((f) => implemented.has(f.id)).reduce((a, f) => a + f.potentialSavings, 0);

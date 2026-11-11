@@ -3,11 +3,14 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, ListChecks, PiggyBank, Share2, Sparkles, Target } from "lucide-react";
-import { PRICING, applyScenario, defaultProjectionStart, type ScenarioAdjustment } from "@/lib/schemas";
+import { PRICING, applyScenario, defaultProjectionStart } from "@/lib/schemas";
 import { CHART, ChartTooltip, COLOR, Stat, axisProps, monthTick, signedUsd } from "@/components/dashboard/chartKit";
+import { MoneyNumberInput } from "@/components/dashboard/MoneyInput";
+import { GoalMarginCard } from "@/components/dashboard/GoalTracker";
+import { goalMargin } from "@/lib/fiscal";
 import { cn, pct, secondaryBtn, usd, usdCompact } from "@/components/ui";
-import { DEMO_BASELINE, DEMO_COMPANY, DEMO_EXPENSES, DEMO_FILE, DEMO_FLAGS, DEMO_MONTHS, DEMO_PERIOD, DEMO_REVENUE, avg, total, type DemoFlag, type DemoLine } from "./demoData";
-import { AVG_EXPENSES, AVG_NET, AVG_REVENUE, BUDGET_EXPENSES, BUDGET_REVENUE, LockedFeature, POTENTIAL_SAVINGS, ProBadge, SampleNote, SeverityPill, UpgradeLink, implementedSavings, sumOf } from "./demoShared";
+import { DEMO_BASELINE, DEMO_COMPANY, DEMO_EXPENSES, DEMO_FILE, DEMO_FLAGS, DEMO_MONTHS, DEMO_PERIOD, DEMO_REVENUE, avg, total, type DemoLine } from "./demoData";
+import { AVG_EXPENSES, AVG_NET, AVG_REVENUE, BUDGET_EXPENSES, BUDGET_REVENUE, LockedFeature, POTENTIAL_SAVINGS, ProBadge, SampleNote, SeverityPill, UpgradeLink, asAdjustments, implementedSavings, sumOf } from "./demoShared";
 
 // ---------------------------------------------------------------------------
 // Figures the report is written from (all derived from demoData)
@@ -41,10 +44,6 @@ const ACTIONABLE = DEMO_FLAGS.filter((f) => f.potentialSavings > 0);
 
 /** "rose $2,030.00" / "fell $500.00" / "was flat", for the month-over-month narrative. */
 const moved = (delta: number) => (delta === 0 ? "was flat" : `${delta > 0 ? "rose" : "fell"} ${usd.format(Math.abs(delta))}`);
-
-/** An implemented flag, as the forecasting engine sees it: that much less expense every month. */
-const asAdjustments = (flags: DemoFlag[]): ScenarioAdjustment[] =>
-  flags.map((f) => ({ type: "EXPENSE_ADD", label: f.category, amount: -f.potentialSavings, startMonth: 1, description: f.title }));
 
 const SECTIONS = [
   { id: "demo-report-summary", label: "Executive summary" },
@@ -160,6 +159,9 @@ export function DemoReport({ implemented, onToggle }: { implemented: ReadonlySet
   const margin = net / AVG_REVENUE;
   const overrun = EXPENSE_OVERRUN - captured;
   const proCover = captured / PRICING.proMonthlyUsd;
+  // Goal net margin: defaults to the budgeted net for a year; the sample quarter annualized stands in for the fiscal year.
+  const [netTarget, setNetTarget] = useState<number | null>(Math.round(BUDGET_NET * 12));
+  const targetMargin = goalMargin({ projectedTotal: { revenue: AVG_REVENUE * 12, expenses: (AVG_EXPENSES - captured) * 12 } }, "NET", netTarget);
 
   const { current, potential } = useMemo(() => {
     const opts = { start, months: 12, seasonality };
@@ -212,6 +214,12 @@ export function DemoReport({ implemented, onToggle }: { implemented: ReadonlySet
 
         {/* 1. Executive summary */}
         <Section index={0}>
+          <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Yearly performance at the current run rate">
+            <Stat label="Yearly revenue (run rate)" value={usd.format(AVG_REVENUE * 12)} />
+            <Stat label="Yearly expenses (run rate)" value={usd.format((AVG_EXPENSES - captured) * 12)} />
+            <Stat label="Yearly net (run rate)" value={usd.format(net * 12)} tone="good" />
+            <Stat label={`Net margin · goal ${pct(BUDGET_MARGIN)}`} value={pct(margin)} tone={margin >= BUDGET_MARGIN ? "good" : undefined} />
+          </div>
           <div className="max-w-4xl space-y-3 text-sm leading-relaxed text-slate-300">
             <p>
               Over the quarter the business averaged {usd.format(AVG_REVENUE)} in monthly revenue against {usd.format(AVG_EXPENSES)} in operating expenses, a net of {usd.format(AVG_NET)} per month and a{" "}
@@ -299,6 +307,23 @@ export function DemoReport({ implemented, onToggle }: { implemented: ReadonlySet
                 note={margin >= BUDGET_MARGIN ? "Net margin is back above the budgeted level." : `${usd.format(BUDGET_MARGIN * AVG_REVENUE - net)} more monthly net reaches it at this quarter's revenue.`}
               />
             </div>
+          </div>
+
+          <div className="mt-5">
+            <SubHeading>Goal net margin</SubHeading>
+            <div className="mt-2 grid gap-3 lg:grid-cols-[minmax(0,16rem)_1fr] lg:items-start">
+              <label className="block rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                <span className="text-[11px] uppercase tracking-wide text-slate-500">Annual net income target</span>
+                <MoneyNumberInput aria-label="Annual net income target" value={netTarget} onChange={setNetTarget} placeholder="e.g. 183,120.00" className="mt-1 text-base font-semibold" />
+                <span className="mt-2 block text-xs leading-relaxed text-slate-400">Type any target. The required margin is worked out against the current operating expenses, so it eases as you implement the callouts below.</span>
+              </label>
+              {targetMargin ? (
+                <GoalMarginCard margin={targetMargin} goal={netTarget ?? 0} />
+              ) : (
+                <p className="rounded-xl border border-dashed border-white/15 px-4 py-5 text-sm text-slate-400">Enter a target to see the net margin it requires.</p>
+              )}
+            </div>
+            <SampleNote>Uses the sample quarter annualized ({usd.format(AVG_REVENUE * 12)} revenue, {usd.format((AVG_EXPENSES - captured) * 12)} operating expenses). In Pro the Goal Tracker does this from your logged months and forecast.</SampleNote>
           </div>
 
           <div className="mt-5">

@@ -12,6 +12,7 @@ import {
   type SeasonalCurve,
 } from "@/lib/schemas";
 import { recurringExpenses, type MonthActual } from "@/lib/fiscal";
+import { NumberField } from "@/components/dashboard/WhatIfSimulator";
 import { InfoTip } from "@/components/InfoTip";
 import { cn } from "@/components/ui";
 
@@ -117,10 +118,11 @@ export function SeasonalityControls({
       </div>
 
       {/* Strength knob */}
-      <label className="mt-3 flex items-center gap-3">
+      <div className="mt-3 flex items-center gap-3">
         <span className="w-14 shrink-0 text-slate-400">Strength</span>
         <input
           type="range"
+          aria-label="Seasonality strength"
           min={0}
           max={MAX_SEASONALITY_STRENGTH * 100}
           step={5}
@@ -129,8 +131,17 @@ export function SeasonalityControls({
           aria-valuetext={`${Math.round(strength * 100)} percent`}
           className="h-1.5 min-w-0 flex-1 cursor-pointer accent-indigo-400"
         />
-        <span className="w-11 shrink-0 text-right font-medium tabular-nums text-slate-100">{Math.round(strength * 100)}%</span>
-      </label>
+        <NumberField
+          aria-label="Seasonality strength in percent"
+          value={Math.round(strength * 100)}
+          onCommit={(v) => onChange({ seasonalityStrength: (v ?? 0) / 100 })}
+          min={0}
+          max={MAX_SEASONALITY_STRENGTH * 100}
+          decimals={0}
+          suffix="%"
+          className="w-16"
+        />
+      </div>
 
       {/* Curve preview: bars above / below 1.00 */}
       <div className="mt-3" aria-label={`${side} multipliers by month`} role="img">

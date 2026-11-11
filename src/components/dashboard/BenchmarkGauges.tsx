@@ -14,6 +14,7 @@ import {
 import type { FinancialAnalysis } from "@/lib/schemas";
 import { exactMoney } from "@/lib/fiscal";
 import { InfoTip } from "@/components/InfoTip";
+import { MarginPercentileCard, marginPercentileHtml } from "@/components/dashboard/MarginPercentile";
 import { cn, glass, inputCls } from "@/components/ui";
 
 const TONE_CHIP = {
@@ -59,6 +60,8 @@ export function BenchmarkGauges({
 }) {
   const results = useMemo(() => evaluateBenchmarks(profile, analysis.itemizedRevenue, analysis.itemizedExpenses), [profile, analysis.itemizedRevenue, analysis.itemizedExpenses]);
   const personal = profile === "HOUSEHOLD";
+  // The computed margin row (net margin, cash-flow margin or savings rate) also gets the percentile / bell-curve card.
+  const margin = results.find((r) => r.key === "net" || r.key === "savings");
   const attention = results.filter((r) => r.status === "HIGH" || (r.status === "LOW" && r.better === "HIGHER"));
 
   return (
@@ -89,6 +92,8 @@ export function BenchmarkGauges({
           </label>
         )}
       </div>
+
+      {margin && <MarginPercentileCard profile={profile} margin={margin.value} className="mt-4" />}
 
       {results.length === 0 ? (
         <p className="mt-4 text-sm text-slate-400">Add recurring {personal ? "income" : "revenue"} to compare against benchmarks.</p>
@@ -130,7 +135,9 @@ export function benchmarksReportHtml(results: BenchmarkResult[], profile: Benchm
         `<tr><td>${esc(r.label)}</td><td>${r.status === "NO_DATA" ? "—" : p1(r.value)}</td><td>${esc(r.typical)}</td><td class="${cls(r)}">(${esc(BENCHMARK_STATUS_LABEL[r.status])})</td></tr>`,
     )
     .join("");
+  const margin = results.find((r) => r.key === "net" || r.key === "savings");
   return `<h2>${profile === "HOUSEHOLD" ? "Budget benchmarks" : "Industry benchmarks"} · ${esc(BENCHMARK_PROFILE_LABELS[profile])}</h2>
+${margin ? marginPercentileHtml(profile, margin.value, esc) : ""}
 <table><thead><tr><th>Metric</th><th>You</th><th>Typical</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
 <p class="muted" style="font-size:11px">Shares of recurring monthly revenue versus general rules of thumb for this peer group — not audited industry statistics.</p>`;
 }

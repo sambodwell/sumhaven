@@ -2,13 +2,21 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ArrowLeft, ArrowRight, CheckCircle2, FileSpreadsheet, FileText, LayoutDashboard, LineChart as LineChartIcon, RotateCcw, SlidersHorizontal, Sparkles, Table2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, FileSpreadsheet, FileText, LayoutDashboard, LineChart as LineChartIcon, MessageSquareText, RotateCcw, SlidersHorizontal, Sparkles, Table2 } from "lucide-react";
 import { applyScenario, defaultProjectionStart, type ScenarioAdjustment } from "@/lib/schemas";
 import { CHART, ChartTooltip, COLOR, Stat, axisProps, impactColor, monthTick, signedUsd } from "@/components/dashboard/chartKit";
+import { ExpenseBars, ExpenseDonut, ExpenseViewToggle, toExpenseCategories, toSlices, useExpenseView } from "@/components/dashboard/ExpenseShare";
+import { MarginPercentileCard } from "@/components/dashboard/MarginPercentile";
+import { NumberField } from "@/components/dashboard/WhatIfSimulator";
 import { cn, glass, pct, secondaryBtn, usd, usdCompact } from "@/components/ui";
 import { DEMO_BASELINE, DEMO_COMPANY, DEMO_EXPENSES, DEMO_FLAGS, DEMO_MONTHS, DEMO_PERIOD, DEMO_REVENUE, avg, total, type DemoLine } from "./demoData";
+import { AssistantPanel } from "./DemoAssistant";
 import { DemoReport } from "./DemoReport";
-import { AVG_EXPENSES, AVG_NET, AVG_REVENUE, LockedFeature, POTENTIAL_SAVINGS, SampleNote, SeverityPill, UpgradeLink, implementedSavings as savingsOf, sumOf } from "./demoShared";
+import { AVG_EXPENSES, AVG_NET, AVG_REVENUE, LockedFeature, POTENTIAL_SAVINGS, SampleNote, SeverityPill, UpgradeLink, asAdjustments, implementedSavings as savingsOf, sumOf } from "./demoShared";
+
+/** Sample expenses by category (Q3 monthly averages), largest first: the data behind both expense views. */
+const EXPENSE_CATEGORIES = toExpenseCategories(DEMO_EXPENSES.map((e) => ({ name: e.category, value: avg(e.actual) })));
+const EXPENSE_SLICES = toSlices(EXPENSE_CATEGORIES);
 
 /** Eases a displayed number toward `target` (instant when the visitor prefers reduced motion). */
 function useCountUp(target: number, ms = 700): number {
@@ -45,15 +53,22 @@ function OverviewPanel({ implemented, onToggle, onOpenReport }: { implemented: R
     Revenue: sumOf(DEMO_REVENUE, (l) => l.actual[i]),
     Expenses: sumOf(DEMO_EXPENSES, (l) => l.actual[i]),
   }));
-  const expenses = [...DEMO_EXPENSES].sort((a, b) => avg(b.actual) - avg(a.actual));
+  const [expenseView, setExpenseView] = useExpenseView("bar");
+  const [start] = useState(() => defaultProjectionStart());
+  const margin = (AVG_NET + implementedSavings) / AVG_REVENUE;
+  // The next 12 months at the sample quarter's averages, less whatever has been marked implemented.
+  const projectedNet = useMemo(() => applyScenario(DEMO_BASELINE, asAdjustments(DEMO_FLAGS.filter((f) => implemented.has(f.id))), { start, months: 12 }).adjustedAnnualNet, [implemented, start]);
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="Revenue / month" value={usd.format(AVG_REVENUE)} />
         <Stat label="Expenses / month" value={usd.format(AVG_EXPENSES - implementedSavings)} />
         <Stat label="Net / month" value={usd.format(AVG_NET + implementedSavings)} tone="good" />
-        <Stat label="Net margin" value={pct((AVG_NET + implementedSavings) / AVG_REVENUE)} />
+        <Stat label="Net margin" value={pct(margin)} />
+        <div className="col-span-2 lg:col-span-1">
+          <Stat label="12-mo projected net" value={usd.format(projectedNet)} tone={projectedNet < 0 ? "bad" : "good"} />
+        </div>
       </div>
 
       {/* Savings tickers: move as flags below are marked implemented. */}
@@ -94,26 +109,21 @@ function OverviewPanel({ implemented, onToggle, onOpenReport }: { implemented: R
           </div>
         </div>
         <div className="lg:col-span-2">
-          <h4 className="text-sm font-medium text-slate-200">Where the money goes</h4>
-          <ul className="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1" tabIndex={0} aria-label="Expense categories by share of spend">
-            {expenses.map((e) => {
-              const share = avg(e.actual) / AVG_EXPENSES;
-              return (
-                <li key={e.category}>
-                  <div className="flex items-baseline justify-between gap-3 text-xs">
-                    <span className="truncate text-slate-300">{e.category}</span>
-                    <span className="shrink-0 tabular-nums text-slate-400">
-                      {usd.format(avg(e.actual))} · {pct(share)}
-                    </span>
-                  </div>
-                  <div className="mt-1 h-1.5 rounded-full bg-white/5">
-                    <div className="h-full rounded-full" style={{ width: `${share * 100}%`, background: COLOR.expenses }} />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-sm font-medium text-slate-200">Where the money goes</h4>
+            <ExpenseViewToggle value={expenseView} onChange={setExpenseView} />
+          </div>
+          {expenseView === "bar" ? (
+            <ExpenseBars categories={EXPENSE_CATEGORIES} className="mt-2 max-h-56" />
+          ) : (
+            <ExpenseDonut className="mt-3" slices={EXPENSE_SLICES} total={AVG_EXPENSES} totalNote={`${pct(AVG_EXPENSES / AVG_REVENUE)} of revenue`} caption="Sample expenses by category" />
+          )}
         </div>
+      </div>
+
+      <div>
+        <h4 className="text-sm font-medium text-slate-200">Industry comparison</h4>
+        <MarginPercentileCard profile="FIELD_SERVICES" margin={margin} className="mt-2" />
       </div>
 
       <div>
@@ -163,30 +173,36 @@ const PRESETS: { label: string; revenue: number; expenses: number }[] = [
   { label: "Grow 12%, hire to match", revenue: 12, expenses: 7 },
 ];
 
+const SLIDER_RANGE = 30;
+/** Typed percentages can go past the slider: a line can't lose more than all of itself; growth is capped at double. */
+const TYPED_MIN = -100;
+const TYPED_MAX = 100;
+
+/** Drag the slider, or type an exact percentage (decimals allowed) in the box beside the label. */
 function ShiftSlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   const id = useId();
+  // A typed value beyond ±30% widens the track so the thumb still shows where you are.
+  const lo = Math.min(-SLIDER_RANGE, value);
+  const hi = Math.max(SLIDER_RANGE, value);
   return (
     <div>
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-center justify-between gap-3">
         <label htmlFor={id} className="text-sm text-slate-300">
           {label}
         </label>
-        <output htmlFor={id} className="text-sm font-semibold tabular-nums text-slate-100">
-          {value > 0 ? "+" : value < 0 ? "−" : ""}
-          {Math.abs(value)}%
-        </output>
+        <NumberField aria-label={`${label} in percent (type an exact value)`} value={value} onCommit={(v) => onChange(v ?? 0)} min={TYPED_MIN} max={TYPED_MAX} suffix="%" className="w-20" />
       </div>
-      <input id={id} type="range" min={-30} max={30} step={1} value={value} onChange={(e) => onChange(Number(e.target.value))} className="mt-2 w-full accent-indigo-400" />
+      <input id={id} type="range" min={lo} max={hi} step={1} value={value} onChange={(e) => onChange(Number(e.target.value))} className="mt-2 w-full accent-indigo-400" />
       <div className="flex justify-between text-[10px] text-slate-500">
-        <span>−30%</span>
+        <span>{lo}%</span>
         <span>0</span>
-        <span>+30%</span>
+        <span>+{hi}%</span>
       </div>
     </div>
   );
 }
 
-function ForecastPanel() {
+function ForecastPanel({ onOpenChat }: { onOpenChat: () => void }) {
   const [revenue, setRevenue] = useState(0);
   const [expenses, setExpenses] = useState(0);
   const [seasonality, setSeasonality] = useState(false);
@@ -250,6 +266,9 @@ function ForecastPanel() {
           title="Plain-English scenarios"
           description={'In Pro, describe a change in words ("hire a technician in March at $4,800/mo") and Sumhaven turns it into line-level adjustments you can save and compare.'}
         />
+        <button type="button" onClick={onOpenChat} className="inline-flex items-center gap-1.5 text-xs text-indigo-300 hover:text-indigo-200">
+          See a sample question answered <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+        </button>
       </div>
 
       <div className="lg:col-span-3">
@@ -395,6 +414,7 @@ function ActualsPanel() {
 const TABS = [
   { id: "overview", label: "Overview Dashboard", icon: LayoutDashboard, blurb: "Instant high-level visibility into cash flow and operational health at a glance." },
   { id: "forecast", label: "Forecasting", icon: SlidersHorizontal, blurb: "Model future growth trajectories and stress-test financial scenarios with precision inputs." },
+  { id: "assistant", label: "AI Scenario Chat", icon: MessageSquareText, blurb: "Ask a plain-English question and watch the forecast and 12-month projection adjust to answer it." },
   { id: "actuals", label: "Fiscal Year Actuals", icon: Table2, blurb: "Keep budgets airtight with deep-dive variance tracking across all operating expenses." },
   { id: "report", label: "Executive Report & Audit", icon: FileText, blurb: "The Pro deliverable: audit goals and risk callouts with dollar amounts, the month-by-month P&L, a 12-month projection and the full written analysis." },
 ] as const;
@@ -485,7 +505,8 @@ export function DemoShowcase({ onRestart }: { onRestart: () => void }) {
       <div role="tabpanel" id={`${baseId}-panel`} aria-labelledby={`${baseId}-tab-${current.id}`} className="pt-4">
         <p className="mb-4 rounded-lg border border-indigo-300/20 bg-indigo-500/[0.06] px-3 py-2 text-sm text-indigo-100">{current.blurb}</p>
         {current.id === "overview" && <OverviewPanel implemented={implemented} onToggle={toggle} onOpenReport={() => goTo(REPORT_TAB)} />}
-        {current.id === "forecast" && <ForecastPanel />}
+        {current.id === "forecast" && <ForecastPanel onOpenChat={() => goTo(TABS.findIndex((t) => t.id === "assistant"))} />}
+        {current.id === "assistant" && <AssistantPanel />}
         {current.id === "actuals" && <ActualsPanel />}
         {current.id === "report" && <DemoReport implemented={implemented} onToggle={toggle} />}
       </div>

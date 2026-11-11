@@ -109,7 +109,10 @@ function Slider({
   onChange,
   hint,
   field,
+  pctField,
 }: {
+  /** Editable percent box shown in place of the read-only value, for sliders measured in percent. */
+  pctField?: ReactNode;
   id: string;
   label: string;
   value: number;
@@ -132,9 +135,11 @@ function Slider({
         <label htmlFor={id} className="text-xs font-medium text-slate-300">
           {label}
         </label>
-        <output htmlFor={id} className={cn("text-sm font-semibold tabular-nums", value === 0 ? "text-slate-500" : "text-slate-50")}>
-          {format(value)}
-        </output>
+        {pctField ?? (
+          <output htmlFor={id} className={cn("text-sm font-semibold tabular-nums", value === 0 ? "text-slate-500" : "text-slate-50")}>
+            {format(value)}
+          </output>
+        )}
       </div>
       <div className="mt-2 flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
@@ -396,7 +401,10 @@ export function WhatIfSimulator({
               step={1}
               format={signedPct}
               onChange={(v) => set({ revenuePct: v })}
-              hint={`${signedUsd((monthlyRevenue * s.revenuePct) / 100)}/mo on ${usd.format(monthlyRevenue)} recurring ${copy.revenue.toLowerCase()} · type a target $/mo in the box`}
+              hint={`${signedUsd((monthlyRevenue * s.revenuePct) / 100)}/mo on ${usd.format(monthlyRevenue)} recurring ${copy.revenue.toLowerCase()} · type an exact % above or a target $/mo in the box`}
+              pctField={
+                <NumberField aria-label={`${copy.revenue} change in percent`} value={s.revenuePct} onCommit={(v) => set({ revenuePct: v ?? 0 })} min={PCT_MIN} max={PCT_MAX} suffix="%" className="w-20" />
+              }
               field={
                 monthlyRevenue > 0 ? (
                   <NumberField
@@ -437,7 +445,8 @@ export function WhatIfSimulator({
               step={1}
               format={signedPct}
               onChange={(v) => set({ scalePct: v })}
-              hint={`${signedUsd((scaleBase * s.scalePct) / 100)}/mo on ${usd.format(scaleBase)} · type a target $/mo in the box`}
+              hint={`${signedUsd((scaleBase * s.scalePct) / 100)}/mo on ${usd.format(scaleBase)} · type an exact % above or a target $/mo in the box`}
+              pctField={<NumberField aria-label="Spend change in percent" value={s.scalePct} onCommit={(v) => set({ scalePct: v ?? 0 })} min={PCT_MIN} max={PCT_MAX} suffix="%" className="w-20" />}
               field={
                 scaleBase > 0 ? (
                   <NumberField

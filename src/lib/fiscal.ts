@@ -368,6 +368,34 @@ export interface GoalPace {
   headline: string;
 }
 
+/** The net margin a goal implies, worked out against the fiscal year's current revenue and operating expenses. */
+export interface GoalMargin {
+  metric: GoalMetric;
+  /** Net margin needed to hit the goal (null when it can't be expressed, e.g. a goal with no revenue behind it). */
+  required: number | null;
+  /** Net margin the fiscal year is on pace for (logged actuals + forecast), null without revenue. */
+  current: number | null;
+  /** NET goals only: the revenue that goal takes at the current level of expenses. */
+  revenueNeeded: number | null;
+  /** Fiscal-year revenue and operating expenses the figures are based on (logged actuals + forecast). */
+  revenue: number;
+  expenses: number;
+}
+
+/**
+ * Required net margin for a goal, holding the other side of the P&L at its current fiscal-year pace:
+ *  - Net income goal G:   revenue must reach G + expenses, so margin = G ÷ (G + expenses).
+ *  - Revenue goal R:      margin = (R − expenses) ÷ R at today's expenses.
+ *  - Expense budget B:    margin = (revenue − B) ÷ revenue at today's revenue.
+ */
+export function goalMargin(summary: Pick<FiscalSummary, "projectedTotal">, metric: GoalMetric, goal: number | null): GoalMargin | null {
+  if (goal == null || !Number.isFinite(goal)) return null;
+  const { revenue, expenses } = summary.projectedTotal;
+  const ratio = (num: number, den: number) => (den > 0 ? num / den : null);
+  const required = metric === "NET" ? ratio(goal, goal + expenses) : metric === "REVENUE" ? ratio(goal - expenses, goal) : ratio(revenue - goal, revenue);
+  return { metric, required, current: ratio(revenue - expenses, revenue), revenueNeeded: metric === "NET" ? round2(goal + expenses) : null, revenue, expenses };
+}
+
 const money2 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** "$1,234.56" — exact to the cent. */
 export const exactMoney = (n: number) => money2.format(n);

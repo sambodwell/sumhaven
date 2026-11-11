@@ -37,12 +37,69 @@ export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 let browserClient: SupabaseClient | null = null;
 
+// ---------------------------------------------------------------------------
+// "Remember me": where the browser keeps the auth session
+// ---------------------------------------------------------------------------
+
+const REMEMBER_KEY = "sumhaven:auth:remember";
+
+/** Whether sign-ins on this device are kept after the browser closes. Defaults to true. */
+export function getRememberMe(): boolean {
+  try {
+    return typeof window === "undefined" || window.localStorage.getItem(REMEMBER_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+/** Call before signing in or up: the session that follows is stored according to this choice. */
+export function setRememberMe(remember: boolean) {
+  try {
+    if (remember) window.localStorage.removeItem(REMEMBER_KEY);
+    else window.localStorage.setItem(REMEMBER_KEY, "0");
+  } catch {
+    /* storage blocked: the session falls back to Supabase's in-memory handling */
+  }
+}
+
+/**
+ * Session storage for the Supabase client. Remembered sign-ins live in localStorage (kept until sign-out); the rest
+ * live in sessionStorage, which the browser clears when the tab or window closes. A session is only ever in one of them.
+ */
+const authStorage = {
+  getItem(key: string): string | null {
+    try {
+      return window.sessionStorage.getItem(key) ?? window.localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem(key: string, value: string) {
+    try {
+      const [keep, drop] = getRememberMe() ? [window.localStorage, window.sessionStorage] : [window.sessionStorage, window.localStorage];
+      keep.setItem(key, value);
+      drop.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+  },
+  removeItem(key: string) {
+    try {
+      window.sessionStorage.removeItem(key);
+      window.localStorage.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+  },
+};
+
 /** Browser singleton. Returns null when env vars are missing so the app still runs in guest mode. */
 export function getSupabase(): SupabaseClient | null {
   if (!isSupabaseConfigured) return null;
   if (!browserClient) {
+    const inBrowser = typeof window !== "undefined";
     browserClient = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
-      auth: { persistSession: typeof window !== "undefined", autoRefreshToken: true, detectSessionInUrl: true },
+      auth: { persistSession: inBrowser, autoRefreshToken: true, detectSessionInUrl: true, ...(inBrowser ? { storage: authStorage } : {}) },
     });
   }
   return browserClient;
